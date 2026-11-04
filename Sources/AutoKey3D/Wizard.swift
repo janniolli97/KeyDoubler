@@ -170,6 +170,20 @@ struct PrintIllustration: View {
     }
 }
 
+
+/// Writes image data delivered by Continuity Camera (File > Import from iPhone) to a temp file and returns its URL.
+func importedImageURL(from providers: [NSItemProvider], completion: @escaping (URL) -> Void) -> Bool {
+    guard let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) else { return false }
+    p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+        guard let data else { return }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("iphone-\(UUID().uuidString).png")
+        let rep = NSBitmapImageRep(data: data)
+        guard let png = rep?.representation(using: .png, properties: [:]) ?? Optional(data), (try? png.write(to: url)) != nil else { return }
+        DispatchQueue.main.async { completion(url) }
+    }
+    return true
+}
+
 // MARK: - Wizard
 
 enum WizardStep: Int, CaseIterable {
@@ -231,6 +245,10 @@ struct WizardView: View {
             }.padding(12)
         }
         .sheet(isPresented: $showScan) { scanSheet }
+        .importsItemProviders([.image]) { providers in
+            guard step == .photo, !useExisting else { return false }
+            return importedImageURL(from: providers) { loadPhoto($0) }
+        }
     }
 
     var scanSheet: some View {
@@ -374,7 +392,7 @@ struct WizardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("1. Schlüssel aufrecht hinstellen, Spitze zur Kamera – oder in Knetmasse stecken.")
                     Text("2. Ein einfarbiges Blatt Papier dahinter, gleichmäßiges Licht, keine Schatten.")
-                    Text("3. iPhone genau senkrecht von vorn halten, per AirDrop an den Mac schicken oder hier hineinziehen.")
+                    Text("3. iPhone genau senkrecht von vorn halten. Direkt aufnehmen: Ablage ▸ Vom iPhone importieren ▸ Foto aufnehmen – oder per AirDrop senden bzw. hier hineinziehen.")
                 }.font(.callout)
                 HStack {
                     Button("Foto wählen …") {
@@ -572,7 +590,7 @@ struct KeyScanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Schlüssel scannen").font(.title2.bold())
-                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
+                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Am schnellsten mit dem iPhone: Menü Ablage ▸ Vom iPhone importieren ▸ Dokumente scannen (Kontinuitätskamera, iPhone in der Nähe, gleiche Apple-ID). Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("Foto/Scan wählen …") {
@@ -611,5 +629,6 @@ struct KeyScanView: View {
                 }
             }.padding(20)
         }.frame(width: 640, height: 640).onAppear { pinCount = pins }
+        .importsItemProviders([.image]) { providers in importedImageURL(from: providers) { load($0) } }
     }
 }
