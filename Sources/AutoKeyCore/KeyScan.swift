@@ -30,12 +30,13 @@ public struct KeyScan {
     let mean: V2, axis: V2, perp: V2
     var vmin: [Double] = [], vmax: [Double] = [], u0 = 0.0
     var flipped = false
+    public static let scanDimension = 2400
     public let bins: Int
     public let detectedShoulder: Double   // in bins
 
     public init(trace: PhotoTrace, threshold: Int, keyIsDark: Bool) throws {
         self.trace = trace
-        mask = trace.mask(threshold: threshold, keyIsDark: keyIsDark)
+        mask = trace.mask(threshold: threshold, keyIsDark: keyIsDark, bridgeGaps: false)
         var pts: [V2] = []
         for i in 0..<mask.count where mask[i] { pts.append(V2(Double(i % trace.width), Double(i / trace.width))) }
         guard pts.count > 500 else { throw ScanError.noKey }
@@ -140,10 +141,10 @@ public struct KeyScan {
             let lvl = max(0, Int(lvlF.rounded()))
             levels.append(lvl)
             res.append(cutspace > 0 ? abs(lvlF - Double(lvl)) : 0)
-            marks.append((point(c, -400), point(c, 400)))
+            marks.append((point(c, -Double(bins)), point(c, Double(bins))))
         }
         return Result(depthsMM: depths, levels: levels, residuals: res, mmPerPixel: mmpx, shoulderU: sh, tipU: tip,
-                      markers: marks, shoulderLine: (point(sh, -400), point(sh, 400)))
+                      markers: marks, shoulderLine: (point(sh, -Double(bins)), point(sh, Double(bins))))
     }
 
     /// Photo with tinted key and pin / shoulder markers.
@@ -160,8 +161,9 @@ public struct KeyScan {
             ctx.move(to: CGPoint(x: a.x, y: Double(h) - a.y)); ctx.addLine(to: CGPoint(x: b.x, y: Double(h) - b.y)); ctx.strokePath()
         }
         if let r = r {
-            line(r.shoulderLine.a, r.shoulderLine.b, CGColor(red: 0.2, green: 0.6, blue: 1, alpha: 1), 3)
-            for m in r.markers { line(m.a, m.b, CGColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 1), 2) }
+            let scale = CGFloat(max(w, h)) / 900
+            line(r.shoulderLine.a, r.shoulderLine.b, CGColor(red: 0.2, green: 0.6, blue: 1, alpha: 1), 3 * scale)
+            for m in r.markers { line(m.a, m.b, CGColor(red: 0.1, green: 0.9, blue: 0.3, alpha: 1), 2 * scale) }
         }
         return ctx.makeImage()
     }

@@ -22,11 +22,11 @@ public struct PhotoTrace {
     }
 
     /// Reads JPEG/PNG/HEIC and applies EXIF orientation (iPhone photos).
-    public init(url: URL) throws {
+    public init(url: URL, maxDimension: Int = PhotoTrace.maxDimension) throws {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { throw TraceError.unreadable }
         let opts: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
                                      kCGImageSourceCreateThumbnailWithTransform: true,
-                                     kCGImageSourceThumbnailMaxPixelSize: PhotoTrace.maxDimension]
+                                     kCGImageSourceThumbnailMaxPixelSize: maxDimension]
         guard let img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { throw TraceError.unreadable }
         let w = img.width, h = img.height
         var buf = [UInt8](repeating: 0, count: w * h)
@@ -57,31 +57,77 @@ public struct PhotoTrace {
         return thr
     }
 
-    /// Binary mask of the key: largest connected shape, holes filled.
-    public func mask(threshold: Int, keyIsDark: Bool) -> [Bool] {
-        var m = gray.map { keyIsDark ? Int($0) <= threshold : Int($0) > threshold }
+    /// Binary mask of the key: the largest shape not touching the image border, holes filled.
+    /// Pieces separated by reflections are grouped; `bridgeGaps` also closes the gaps between them,
+    /// which a contour needs. Measuring edges should use the original pixels instead.
+    public func mask(threshold: Int, keyIsDark: Bool, bridgeGaps: Bool = true) -> [Bool] {
+        let raw = gray.map { keyIsDark ? Int($0) <= threshold : Int($0) > threshold }
         let w = width, h = height
-        // largest 4-connected component
-        var label = [Int32](repeating: 0, count: w * h)
-        var best = 0, bestLabel: Int32 = 0, next: Int32 = 0
-        var stack: [Int] = []
-        for s in 0..<(w * h) where m[s] && label[s] == 0 {
-            next += 1; var count = 0
-            stack = [s]; label[s] = next
-            while let i = stack.popLast() {
-                count += 1
-                let x = i % w, y = i / w
-                if x > 0, m[i - 1], label[i - 1] == 0 { label[i - 1] = next; stack.append(i - 1) }
-                if x < w - 1, m[i + 1], label[i + 1] == 0 { label[i + 1] = next; stack.append(i + 1) }
-                if y > 0, m[i - w], label[i - w] == 0 { label[i - w] = next; stack.append(i - w) }
-                if y < h - 1, m[i + w], label[i + w] == 0 { label[i + w] = next; stack.append(i + w) }
+
+        struct Component { var area = 0, minX = Int.max, minY = Int.max, maxX = 0, maxY = 0, touchesBorder = false }
+        func components(_ m: [Bool]) -> (labels: [Int32], list: [Component]) {
+            var label = [Int32](repeating: -1, count: w * h)
+            var list: [Component] = []
+            var stack: [Int] = []
+            for s in 0..<(w * h) where m[s] && label[s] < 0 {
+                let id = Int32(list.count)
+                var c = Component()
+                stack = [s]; label[s] = id
+                while let i = stack.popLast() {
+                    let x = i % w, y = i / w
+                    c.area += 1
+                    c.minX = min(c.minX, x); c.maxX = max(c.maxX, x); c.minY = min(c.minY, y); c.maxY = max(c.maxY, y)
+                    if x == 0 || y == 0 || x == w - 1 || y == h - 1 { c.touchesBorder = true }
+                    if x > 0, m[i - 1], label[i - 1] < 0 { label[i - 1] = id; stack.append(i - 1) }
+                    if x < w - 1, m[i + 1], label[i + 1] < 0 { label[i + 1] = id; stack.append(i + 1) }
+                    if y > 0, m[i - w], label[i - w] < 0 { label[i - w] = id; stack.append(i - w) }
+                    if y < h - 1, m[i + w], label[i + w] < 0 { label[i + w] = id; stack.append(i + w) }
+                }
+                list.append(c)
             }
-            if count > best { best = count; bestLabel = next }
+            return (label, list)
         }
-        for i in 0..<(w * h) { m[i] = label[i] == bestLabel && bestLabel != 0 }
+        func largest(_ list: [Component], where keep: (Component) -> Bool) -> Int? {
+            list.indices.filter { keep(list[$0]) }.max { list[$0].area < list[$1].area }
+        }
+        func spread(_ m: [Bool], _ r: Int, value: Bool) -> [Bool] {   // square dilate (true) or erode (false)
+            var a = m
+            for (count, step, lines, lineStep) in [(w, 1, h, w), (h, w, w, 1)] {
+                var out = a
+                for line in 0..<lines {
+                    let base = line * lineStep
+                    var hits = 0
+                    for i in 0..<min(r + 1, count) where a[base + i * step] == value { hits += 1 }
+                    for i in 0..<count {
+                        out[base + i * step] = (hits > 0) == value
+                        if i + r + 1 < count, a[base + (i + r + 1) * step] == value { hits += 1 }
+                        if i - r >= 0, a[base + (i - r) * step] == value { hits -= 1 }
+                    }
+                }
+                a = out
+            }
+            return a
+        }
+
+        let (labels, list) = components(raw)
+        var m: [Bool]
+        if let main = largest(list, where: { !$0.touchesBorder }) {
+            // Group candidates that lie apart only by a small gap, sized relative to the key in the image.
+            let big = list.filter { !$0.touchesBorder && $0.area * 20 >= list[main].area }
+            let span = max(big.map(\.maxX).max()! - big.map(\.minX).min()!, big.map(\.maxY).max()! - big.map(\.minY).min()!)
+            let r = max(1, span * 12 / 1000)
+            let candidates = (0..<(w * h)).map { raw[$0] && !list[Int(labels[$0])].touchesBorder }
+            let closed = spread(spread(candidates, r, value: true), r, value: false)
+            let (groupLabels, groups) = components(closed)
+            guard let group = largest(groups, where: { _ in true }) else { return [Bool](repeating: false, count: w * h) }
+            m = (0..<(w * h)).map { groupLabels[$0] == Int32(group) && (bridgeGaps || raw[$0]) }
+        } else {
+            guard let main = largest(list, where: { _ in true }) else { return raw }
+            m = (0..<(w * h)).map { labels[$0] == Int32(main) }
+        }
         // fill holes: flood background from the border
         var outside = [Bool](repeating: false, count: w * h)
-        stack = []
+        var stack: [Int] = []
         func seed(_ i: Int) { if !m[i] && !outside[i] { outside[i] = true; stack.append(i) } }
         for x in 0..<w { seed(x); seed((h - 1) * w + x) }
         for y in 0..<h { seed(y * w); seed(y * w + w - 1) }

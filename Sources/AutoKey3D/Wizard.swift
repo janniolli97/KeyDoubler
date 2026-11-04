@@ -545,7 +545,7 @@ struct KeyScanView: View {
     @State var msg = ""
 
     func load(_ u: URL) {
-        do { let t = try PhotoTrace(url: u); photo = t; threshold = Double(t.otsuThreshold()); rescan(resetShoulder: true) }
+        do { let t = try PhotoTrace(url: u, maxDimension: KeyScan.scanDimension); photo = t; threshold = Double(t.otsuThreshold()); rescan(resetShoulder: true) }
         catch { msg = error.localizedDescription }
     }
 
