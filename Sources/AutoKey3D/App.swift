@@ -198,7 +198,7 @@ struct CustomDataView: View {
     @Environment(\.dismiss) var dismiss
     @State var pName = ""
     @State var pHeight = ""
-    @State var pTol = "0.2"
+    @State var pTol = "0"
     @State var pConn = ""
     @State var pFile: URL?
     @State var sName = ""

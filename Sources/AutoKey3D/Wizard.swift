@@ -195,7 +195,7 @@ struct WizardView: View {
     // profile
     @State var pName = ""
     @State var pHeight = ""
-    @State var pTol = "0.2"
+    @State var pTol = "0"
     @State var profileSaved = false
     // system
     @State var customSystem = false
