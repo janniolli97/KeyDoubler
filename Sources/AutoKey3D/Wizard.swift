@@ -392,7 +392,7 @@ struct WizardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("1. Schlüssel aufrecht hinstellen, Spitze zur Kamera – oder in Knetmasse stecken.")
                     Text("2. Ein einfarbiges Blatt Papier dahinter, gleichmäßiges Licht, keine Schatten.")
-                    Text("3. iPhone genau senkrecht von vorn halten. Direkt aufnehmen: Ablage ▸ Vom iPhone importieren ▸ Foto aufnehmen – oder per AirDrop senden bzw. hier hineinziehen.")
+                    Text("3. iPhone genau senkrecht von vorn halten. Per AirDrop an den Mac senden oder hier hineinziehen (Kontinuitätskamera: Menü „Vom iPhone importieren“, falls angeboten).")
                 }.font(.callout)
                 HStack {
                     Button("Foto wählen …") {
@@ -590,7 +590,7 @@ struct KeyScanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Schlüssel scannen").font(.title2.bold())
-                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Am schnellsten mit dem iPhone: Menü Ablage ▸ Vom iPhone importieren ▸ Dokumente scannen (Kontinuitätskamera, iPhone in der Nähe, gleiche Apple-ID). Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
+                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Mit dem iPhone: in der Notizen-App „Dokumente scannen“ und per AirDrop an den Mac senden (oder hier hineinziehen). Falls dein Mac die Kontinuitätskamera anbietet, geht es auch über das Menü „Vom iPhone importieren“. Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("Foto/Scan wählen …") {
