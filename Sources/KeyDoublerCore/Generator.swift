@@ -355,8 +355,12 @@ public extension Catalog {
         return definitions.filter { isSupported($0) }.compactMap { system in
             let profileID = Catalog.profileOfSystem[system.id] ?? system.id
             let profile = profiles.first { $0.id == profileID }
-            let names = [system.id, profile?.id ?? ""].map(plain)
-            guard names.contains(where: { $0.contains(q) }) else { return nil }
+            // Match at the start of a name part, so that "E20" does not find "Serie-2000".
+            func matches(_ name: String) -> Bool {
+                let parts = name.split(separator: "-").map { plain(String($0)) }
+                return parts.indices.contains { parts[$0...].joined().hasPrefix(q) }
+            }
+            guard matches(system.id) || profile.map({ matches($0.id) }) == true else { return nil }
             return KeyTypeMatch(system: system, profile: profile)
         }
     }
