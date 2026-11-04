@@ -332,3 +332,32 @@ public extension Catalog {
         return o.points
     }
 }
+
+public struct KeyTypeMatch: Identifiable {
+    public let system: Catalog.Item
+    public let profile: Catalog.Item?
+    public var id: String { system.id }
+}
+
+public extension Catalog {
+    /// Systems whose matching profile has another name (see data/profiles/README.md).
+    private static let profileOfSystem = [
+        "AB-E20": "AB-AB95", "AB-C83": "AB-AB1", "BK-PZ88": "BK-BK1", "CE-810": "CE-CE41",
+        "BK-Serie-2000-6Stift": "BK-Serie-2000-Kaskade-Unbekannt",
+    ]
+
+    /// Finds key types by what is stamped on a key or cylinder, such as "A93" or "E20".
+    /// Serial and key numbers are not in here: only the manufacturer can resolve those.
+    func findKeyType(_ query: String) -> [KeyTypeMatch] {
+        func plain(_ s: String) -> String { s.uppercased().filter { $0.isLetter || $0.isNumber } }
+        let q = plain(query)
+        guard q.count >= 2 else { return [] }
+        return definitions.filter { isSupported($0) }.compactMap { system in
+            let profileID = Catalog.profileOfSystem[system.id] ?? system.id
+            let profile = profiles.first { $0.id == profileID }
+            let names = [system.id, profile?.id ?? ""].map(plain)
+            guard names.contains(where: { $0.contains(q) }) else { return nil }
+            return KeyTypeMatch(system: system, profile: profile)
+        }
+    }
+}

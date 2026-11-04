@@ -216,6 +216,7 @@ struct WizardView: View {
     @State var msg = ""
     @State var showScan = false
     @State var showMeasure = false
+    @State var typeQuery = ""
 
     func d(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
     var profileItem: Catalog.Item? { m.profiles.first { $0.id == m.profileID } }
@@ -305,6 +306,13 @@ struct WizardView: View {
         catch { msg = error.localizedDescription; return false }
     }
 
+    func useKeyType(_ match: KeyTypeMatch) {
+        m.definitionID = match.system.id
+        if let profile = match.profile { m.profileID = profile.id; useExisting = true }
+        customSystem = false
+        step = match.profile == nil ? .photo : .combination
+    }
+
     func applyMeasurement(_ r: KeyMeasurement) {
         customSystem = true
         func text(_ v: Double) -> String { String(format: "%.2f", v) }
@@ -360,6 +368,21 @@ struct WizardView: View {
     var startView: some View {
         VStack(alignment: .leading, spacing: 14) {
             heading("Schlüssel nachdrucken", "Der Assistent führt dich in sieben Schritten von deinem echten Schlüssel zur druckfertigen STL-Datei.")
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Schlüsseltyp suchen").font(.headline)
+                TextField("Typ vom Schlüssel oder Zylinder, z. B. A93 oder E20", text: $typeQuery)
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 380)
+                let matches = m.catalog?.findKeyType(typeQuery) ?? []
+                ForEach(matches) { match in
+                    Button { useKeyType(match) } label: {
+                        Label(match.system.id + (match.profile.map { " · Profil \($0.id)" } ?? " · ohne Profil"), systemImage: "key")
+                    }
+                }
+                if typeQuery.count >= 2, matches.isEmpty {
+                    Text("Nichts gefunden. Seriennummern und Schließungsnummern kann die App nicht auflösen, sie sind nur beim Hersteller hinterlegt. Suche nach dem Typ oder miss den Schlüssel im Schritt „Schlüsselmaße“ aus einem Foto.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Label("1  Foto der Schlüsselspitze → Profil", systemImage: "camera")
             Label("2  Profilhöhe mit dem Messschieber messen", systemImage: "ruler")
             Label("3  Länge, Schulter und Stiftabstand", systemImage: "arrow.left.and.right")

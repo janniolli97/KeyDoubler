@@ -7,6 +7,7 @@ if a.count > 3, a[1] == "photocheck" { do { try photoCheck(a[2], outPrefix: a[3]
 if a.count > 2, a[1] == "flatcheck" { do { try flatCheck(a[2]) } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "measure" { do { try measureTest() } catch { print(error) }; exit(0) }
 if a.count > 4, a[1] == "measurereal" { do { try measureRealPhoto(a[2], coinPixels: Double(a[3]) ?? 150, outPrefix: a[4]) } catch { print(error) }; exit(0) }
+if a.count > 2, a[1] == "typesearch" { for q in a[2...] { print(q, "->", Catalog.locate()?.findKeyType(q).map { "\($0.system.id)/\($0.profile?.id ?? "-")" } ?? []) }; exit(0) }
 if a.count > 1, a[1] == "scancases" { do { try scanCases() } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "scan" { do { try scantest() } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "photo" { do { try phototest(a[2]) } catch { print(error) }; exit(0) }
