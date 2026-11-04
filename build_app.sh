@@ -15,6 +15,7 @@ cat > "$APP/Contents/Info.plist" <<'P'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+<key>CFBundleDevelopmentRegion</key><string>de</string>
 <key>CFBundleName</key><string>AutoKey3D</string>
 <key>CFBundleDisplayName</key><string>AutoKey3D</string>
 <key>CFBundleIdentifier</key><string>net.own-hero.autokey3d.macos</string>

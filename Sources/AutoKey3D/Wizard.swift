@@ -170,20 +170,6 @@ struct PrintIllustration: View {
     }
 }
 
-
-/// Writes image data delivered by Continuity Camera (File > Import from iPhone) to a temp file and returns its URL.
-func importedImageURL(from providers: [NSItemProvider], completion: @escaping (URL) -> Void) -> Bool {
-    guard let p = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }) else { return false }
-    p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-        guard let data else { return }
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("iphone-\(UUID().uuidString).png")
-        let rep = NSBitmapImageRep(data: data)
-        guard let png = rep?.representation(using: .png, properties: [:]) ?? Optional(data), (try? png.write(to: url)) != nil else { return }
-        DispatchQueue.main.async { completion(url) }
-    }
-    return true
-}
-
 // MARK: - Wizard
 
 enum WizardStep: Int, CaseIterable {
@@ -245,10 +231,6 @@ struct WizardView: View {
             }.padding(12)
         }
         .sheet(isPresented: $showScan) { scanSheet }
-        .importsItemProviders([.image]) { providers in
-            guard step == .photo, !useExisting else { return false }
-            return importedImageURL(from: providers) { loadPhoto($0) }
-        }
     }
 
     var scanSheet: some View {
@@ -392,13 +374,14 @@ struct WizardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("1. Schlüssel aufrecht hinstellen, Spitze zur Kamera – oder in Knetmasse stecken.")
                     Text("2. Ein einfarbiges Blatt Papier dahinter, gleichmäßiges Licht, keine Schatten.")
-                    Text("3. iPhone genau senkrecht von vorn halten. Per AirDrop an den Mac senden oder hier hineinziehen (Kontinuitätskamera: Menü „Vom iPhone importieren“, falls angeboten).")
+                    Text("3. iPhone genau senkrecht von vorn halten. Über „Vom iPhone aufnehmen …“ direkt fotografieren, per AirDrop an den Mac senden oder hier hineinziehen.")
                 }.font(.callout)
                 HStack {
                     Button("Foto wählen …") {
                         let p = NSOpenPanel(); p.allowedContentTypes = [.image]
                         if p.runModal() == .OK, let u = p.url { loadPhoto(u) }
                     }
+                    ContinuityImportButton { loadPhoto($0) }.fixedSize()
                     Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in retrace() }
                 }
                 dropZone
@@ -590,13 +573,14 @@ struct KeyScanView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Schlüssel scannen").font(.title2.bold())
-                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Mit dem iPhone: in der Notizen-App „Dokumente scannen“ und per AirDrop an den Mac senden (oder hier hineinziehen). Falls dein Mac die Kontinuitätskamera anbietet, geht es auch über das Menü „Vom iPhone importieren“. Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
+                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Mit dem iPhone: „Vom iPhone aufnehmen …“ und dort „Dokumente scannen“ wählen, oder einen Scan aus der Notizen-App per AirDrop senden. Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
                     .font(.callout).foregroundStyle(.secondary)
                 HStack {
                     Button("Foto/Scan wählen …") {
                         let p = NSOpenPanel(); p.allowedContentTypes = [.image]
                         if p.runModal() == .OK, let u = p.url { load(u) }
                     }
+                    ContinuityImportButton { load($0) }.fixedSize()
                     Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in rescan(resetShoulder: true) }
                     Stepper("Stifte: \(pinCount)", value: $pinCount, in: 1...10).onChange(of: pinCount) { _ in analyze() }.frame(width: 140)
                 }
@@ -629,6 +613,5 @@ struct KeyScanView: View {
                 }
             }.padding(20)
         }.frame(width: 640, height: 640).onAppear { pinCount = pins }
-        .importsItemProviders([.image]) { providers in importedImageURL(from: providers) { load($0) } }
     }
 }
