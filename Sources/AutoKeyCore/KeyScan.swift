@@ -70,7 +70,7 @@ public struct KeyScan {
             return Bins(lo: lo, hi: hi, umin: umin, n: n, flipped: fl)
         }
         func shoulder(_ b: Bins) -> Int {
-            let tipHalf = (b.n / 2..<b.n).map { b.hi[$0] - b.lo[$0] }.sorted()
+            let tipHalf = (b.n * 2 / 3..<b.n).map { b.hi[$0] - b.lo[$0] }.sorted()   // the neck can reach further towards the tip
             let limit = tipHalf[Int(Double(tipHalf.count) * 0.9)] * 1.15
             var sh = 0
             for i in stride(from: b.n - 1, through: 0, by: -1) where b.hi[i] - b.lo[i] > limit { sh = i + 1; break }

@@ -145,28 +145,9 @@ public struct PhotoTrace {
         func largest(_ list: [Component], where keep: (Component) -> Bool) -> Int? {
             list.indices.filter { keep(list[$0]) }.max { list[$0].area < list[$1].area }
         }
-        func spread(_ m: [Bool], _ r: Int, value: Bool) -> [Bool] {   // square dilate (true) or erode (false)
-            var a = m
-            for (count, step, lines, lineStep) in [(w, 1, h, w), (h, w, w, 1)] {
-                var out = a
-                for line in 0..<lines {
-                    let base = line * lineStep
-                    var hits = 0
-                    for i in 0..<min(r + 1, count) where a[base + i * step] == value { hits += 1 }
-                    for i in 0..<count {
-                        out[base + i * step] = (hits > 0) == value
-                        if i + r + 1 < count, a[base + (i + r + 1) * step] == value { hits += 1 }
-                        if i - r >= 0, a[base + (i - r) * step] == value { hits -= 1 }
-                    }
-                }
-                a = out
-            }
-            return a
-        }
-
         // Close small gaps first, so that a speckled background patch counts as one shape that reaches the border.
         let denoise = max(1, max(w, h) * 3 / 1000)
-        let (labels, list) = components(spread(spread(raw, denoise, value: true), denoise, value: false))
+        let (labels, list) = components(closed(raw, radius: denoise))
         var m: [Bool]
         if let main = largest(list, where: { !$0.touchesBorder }) {
             // Group the pieces of the key that lie apart only by a small gap, sized relative to the key in the image.
@@ -175,8 +156,7 @@ public struct PhotoTrace {
             let span = max(big.map(\.maxX).max()! - big.map(\.minX).min()!, big.map(\.maxY).max()! - big.map(\.minY).min()!)
             let r = max(1, span * 12 / 1000)
             let candidates = (0..<(w * h)).map { raw[$0] && isPiece(list[Int(labels[$0])]) }
-            let closed = spread(spread(candidates, r, value: true), r, value: false)
-            let (groupLabels, groups) = components(closed)
+            let (groupLabels, groups) = components(closed(candidates, radius: r))
             guard let group = largest(groups, where: { _ in true }) else { return [Bool](repeating: false, count: w * h) }
             m = (0..<(w * h)).map { groupLabels[$0] == Int32(group) && (bridgeGaps || raw[$0]) }
         } else {
@@ -204,27 +184,58 @@ public struct PhotoTrace {
         return m
     }
 
-    /// The largest connected shape of a mask, holes filled.
-    public func keyShape(in input: [Bool]) -> [Bool] {
+    /// Square morphological closing, which joins parts lying less than 2 * radius apart.
+    func closed(_ m: [Bool], radius r: Int) -> [Bool] {
         let w = width, h = height
+        func spread(_ input: [Bool], value: Bool) -> [Bool] {   // dilates the pixels equal to `value`
+            var a = input
+            for (count, step, lines, lineStep) in [(w, 1, h, w), (h, w, w, 1)] {
+                var out = a
+                for line in 0..<lines {
+                    let base = line * lineStep
+                    var hits = 0
+                    for i in 0..<min(r + 1, count) where a[base + i * step] == value { hits += 1 }
+                    for i in 0..<count {
+                        out[base + i * step] = (hits > 0) == value
+                        if i + r + 1 < count, a[base + (i + r + 1) * step] == value { hits += 1 }
+                        if i - r >= 0, a[base + (i - r) * step] == value { hits -= 1 }
+                    }
+                }
+                a = out
+            }
+            return a
+        }
+        return spread(spread(m, value: true), value: false)
+    }
+
+    /// The largest shape of a mask, holes filled. Pieces split by a narrow reflection count as one shape;
+    /// `bridgeGaps` also closes the gaps between them, which a contour needs. Measuring edges should not.
+    public func keyShape(in input: [Bool], bridgeGaps: Bool = true) -> [Bool] {
+        let w = width, h = height
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h { for x in 0..<w where input[y * w + x] {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= 0 else { return input }
+        let group = closed(input, radius: max(1, max(maxX - minX, maxY - minY) * 12 / 1000))
         var label = [Int32](repeating: 0, count: w * h)
         var next: Int32 = 0, best: Int32 = 0, bestArea = 0
         var stack: [Int] = []
-        for s in 0..<(w * h) where input[s] && label[s] == 0 {
+        for s in 0..<(w * h) where group[s] && label[s] == 0 {
             next += 1
             var area = 0
             stack = [s]; label[s] = next
             while let i = stack.popLast() {
                 area += 1
                 let x = i % w, y = i / w
-                if x > 0, input[i - 1], label[i - 1] == 0 { label[i - 1] = next; stack.append(i - 1) }
-                if x < w - 1, input[i + 1], label[i + 1] == 0 { label[i + 1] = next; stack.append(i + 1) }
-                if y > 0, input[i - w], label[i - w] == 0 { label[i - w] = next; stack.append(i - w) }
-                if y < h - 1, input[i + w], label[i + w] == 0 { label[i + w] = next; stack.append(i + w) }
+                if x > 0, group[i - 1], label[i - 1] == 0 { label[i - 1] = next; stack.append(i - 1) }
+                if x < w - 1, group[i + 1], label[i + 1] == 0 { label[i + 1] = next; stack.append(i + 1) }
+                if y > 0, group[i - w], label[i - w] == 0 { label[i - w] = next; stack.append(i - w) }
+                if y < h - 1, group[i + w], label[i + w] == 0 { label[i + w] = next; stack.append(i + w) }
             }
             if area > bestArea { bestArea = area; best = next }
         }
-        return filled(label.map { $0 == best && best != 0 })
+        return filled((0..<(w * h)).map { label[$0] == best && best != 0 && (bridgeGaps || input[$0]) })
     }
 
     /// Outer contour (pixel corner coordinates, y down) via boundary following on the pixel grid.

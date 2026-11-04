@@ -122,10 +122,11 @@ struct KeySideIllustration: View {
             var cur = left
             for (cx, depth) in pts {
                 let w = max(pinspace * s * 0.3, 4)
-                blade.addLine(to: CGPoint(x: cx - w - depth * 0.6, y: bottom))
+                let flank = min(depth * 0.6, max(0, pinspace * s / 2 - w))   // neighbouring cuts must not cross
+                blade.addLine(to: CGPoint(x: cx - w - flank, y: bottom))
                 blade.addLine(to: CGPoint(x: cx - w, y: bottom - depth))
                 blade.addLine(to: CGPoint(x: cx + w, y: bottom - depth))
-                blade.addLine(to: CGPoint(x: cx + w + depth * 0.6, y: bottom))
+                blade.addLine(to: CGPoint(x: cx + w + flank, y: bottom))
                 cur = cx
             }
             _ = cur
@@ -212,6 +213,7 @@ struct WizardView: View {
     @State var levels: [Int] = Array(repeating: 0, count: 6)
     @State var msg = ""
     @State var showScan = false
+    @State var showMeasure = false
 
     func d(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
     var profileItem: Catalog.Item? { m.profiles.first { $0.id == m.profileID } }
@@ -299,6 +301,17 @@ struct WizardView: View {
         s.cutStep = d(sStep) ?? 0; s.cutAngle = d(sAngle) ?? 90; s.plateau = d(sPlat) ?? 0
         do { try m.catalog?.addSystem(s); m.reloadCatalog(); m.definitionID = try Catalog.safeName(s.name); customSystem = false; return true }
         catch { msg = error.localizedDescription; return false }
+    }
+
+    func applyMeasurement(_ r: KeyMeasurement) {
+        customSystem = true
+        func text(_ v: Double) -> String { String(format: "%.2f", v) }
+        sKL = text(r.keyLength); sAsp = text(r.shoulder); sPin = text(r.pinSpacing); sHcut = text(r.deepestCut)
+        sStep = text(r.cutStep); sAngle = String(format: "%.0f", r.cutAngle); sPlat = text(r.plateau)
+        if sName.isEmpty { sName = "Mein-Schluessel" }
+        pins = r.levels.count; levels = r.levels
+        m.options.mode = .key
+        msg = String(format: "Maße übernommen. Gemessene Schlüsselhöhe: %.2f mm.", r.profileHeight)
     }
 
     func applyCombination() {
@@ -447,10 +460,14 @@ struct WizardView: View {
         let p = params
         return VStack(alignment: .leading, spacing: 14) {
             heading("Schlüsselmaße", "Länge, Schulter und Stiftabstand bestimmen, wo die Schnitte sitzen.")
+            Button { showMeasure = true } label: { Label("Maße aus Foto messen (Schlüssel mit Münze) …", systemImage: "camera.metering.center.weighted") }
+                .sheet(isPresented: $showMeasure) {
+                    KeyMeasureView { result in applyMeasurement(result); showMeasure = false } onClose: { showMeasure = false }
+                }
             Picker("", selection: $customSystem) { Text("Vorhandenes System").tag(false); Text("Eigene Maße").tag(true) }
                 .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 380)
             if customSystem {
-                KeySideIllustration(kl: d(sKL) ?? 27, aspace: d(sAsp) ?? 0, pinspace: d(sPin) ?? 0, ph: params["ph"] ?? 8.75, cutspace: d(sStep) ?? 0.5, levels: Array(repeating: 0, count: 6))
+                KeySideIllustration(kl: d(sKL) ?? 27, aspace: d(sAsp) ?? 0, pinspace: d(sPin) ?? 0, ph: params["ph"] ?? 8.75, cutspace: d(sStep) ?? 0.5, hcut: d(sHcut) ?? 0, levels: levels)
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow { Text("Länge (Schulter bis Spitze)"); TextField("27", text: $sKL) }
                     GridRow { Text("Schulter → erster Stift"); TextField("4.6", text: $sAsp) }
@@ -464,7 +481,7 @@ struct WizardView: View {
                 Text("Alle Maße in Millimetern, mit dem Messschieber vom Schlüssel abnehmen.").font(.caption).foregroundStyle(.secondary)
             } else {
                 Picker("System", selection: $m.definitionID) { ForEach(m.definitions) { Text($0.id).tag($0.id) } }.frame(maxWidth: 320)
-                KeySideIllustration(kl: p["kl"] ?? 27, aspace: p["aspace"] ?? 0, pinspace: p["pinspace"] ?? 0, ph: p["ph"] ?? 8.75, cutspace: p["cutspace"] ?? 0.5, levels: Array(repeating: 0, count: 6))
+                KeySideIllustration(kl: p["kl"] ?? 27, aspace: p["aspace"] ?? 0, pinspace: p["pinspace"] ?? 0, ph: p["ph"] ?? 8.75, cutspace: p["cutspace"] ?? 0.5, hcut: p["hcut"] ?? 0, levels: Array(repeating: 0, count: 6))
                 Text("Passt das System nicht zu deinem Schlüssel, wähle oben 'Eigene Maße'.").font(.caption).foregroundStyle(.secondary)
             }
         }.textFieldStyle(.roundedBorder)
@@ -565,7 +582,7 @@ struct KeyScanView: View {
     func rescan(resetShoulder: Bool = false) {
         guard let t = photo else { return }
         do {
-            let auto = autoDetect ? subject.map { t.keyShape(in: $0) } : nil
+            let auto = autoDetect ? subject.map { t.keyShape(in: $0, bridgeGaps: false) } : nil
             let s = try auto.map { try KeyScan(trace: t, mask: $0) } ?? KeyScan(trace: t, threshold: Int(threshold), keyIsDark: keyIsDark)
             scan = s
             if resetShoulder { shoulder = s.detectedShoulder }

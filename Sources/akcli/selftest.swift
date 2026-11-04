@@ -147,8 +147,17 @@ func scanCases() throws {
             print(r.levels == truth ? "OK    " : "FALSCH", k.name, r.levels, String(format: "%.3f mm/px (soll ca. %.3f), %.2fs", r.mmPerPixel, soll, Date().timeIntervalSince(t0)))
             let t1 = Date()
             if let v = t.subjectMask() {
-                let av = try KeyScan(trace: t, mask: t.keyShape(in: v)).analyze(kl: kl, aspace: aspace, pinspace: pinspace, pins: 6, hcut: hcut, cutspace: cs)
+                let av = try KeyScan(trace: t, mask: t.keyShape(in: v, bridgeGaps: false)).analyze(kl: kl, aspace: aspace, pinspace: pinspace, pins: 6, hcut: hcut, cutspace: cs)
                 print(av.levels == truth ? "  auto OK    " : "  auto FALSCH", av.levels, String(format: "%.2fs", Date().timeIntervalSince(t1)))
+                if av.levels != truth {
+                    let shape = try KeyScan(trace: t, mask: t.keyShape(in: v, bridgeGaps: false))
+                    print("    bins", shape.bins, "shoulder", shape.detectedShoulder, String(format: "%.3f mm/px", av.mmPerPixel), "depths", av.depthsMM.map { String(format: "%.2f", $0) })
+                    if let cg = shape.preview(av) {
+                        let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: NSTemporaryDirectory() + "akmetal.png") as CFURL, "public.png" as CFString, 1, nil)!
+                        CGImageDestinationAddImage(d, cg, nil); CGImageDestinationFinalize(d)
+                        print("    Bild:", NSTemporaryDirectory() + "akmetal.png")
+                    }
+                }
             } else { print("  auto: kein Motiv gefunden") }
         } catch { print("FEHLER", k.name, error.localizedDescription) }
     }
@@ -199,5 +208,72 @@ func flatCheck(_ root: String) throws {
         let t = try PhotoTrace(url: url)
         let s = try KeyScan(trace: t, threshold: t.otsuThreshold(), keyIsDark: true)
         print(s.looksLikeFlatKey ? "FLACH " : "ok    ", f)
+    }
+}
+
+/// Key with a coin at a known scale: the measured values must match the drawing.
+func measureTest() throws {
+    let px = 20.0, kl = 27.0, aspace = 4.62, pinspace = 3.1, hcut = 3.69, cs = 0.54, phk = 8.35
+    let truth = [0, 2, 1, 3, 0, 2]
+    let W = 2000, H = 1400
+    let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
+    ctx.setFillColor(gray: 0.9, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    ctx.setFillColor(gray: 0.35, alpha: 1)
+    let coin = 23.25 * px
+    ctx.fillEllipse(in: CGRect(x: 1400, y: 100, width: coin, height: coin))
+    ctx.translateBy(x: 800, y: 850); ctx.rotate(by: 12 * .pi / 180)
+    let x0 = -kl * px / 2, x1 = kl * px / 2, top = -phk * px / 2
+    ctx.setFillColor(gray: 0.2, alpha: 1)
+    let p = CGMutablePath()
+    p.move(to: CGPoint(x: x0, y: top)); p.addLine(to: CGPoint(x: x1, y: top)); p.addLine(to: CGPoint(x: x1, y: -top))
+    for (i, lv) in truth.enumerated() {
+        let c = x1 - (aspace + Double(i) * pinspace) * px, d = (hcut - Double(lv) * cs) * px, w = 0.5 * px
+        p.addLine(to: CGPoint(x: c + w + 0.8 * px, y: -top)); p.addLine(to: CGPoint(x: c + w, y: -top - d))
+        p.addLine(to: CGPoint(x: c - w, y: -top - d)); p.addLine(to: CGPoint(x: c - w - 0.8 * px, y: -top))
+    }
+    p.addLine(to: CGPoint(x: x0, y: -top)); p.closeSubpath()
+    p.addRect(CGRect(x: x1, y: top - 40, width: 170, height: phk * px + 80))
+    ctx.addPath(p); ctx.fillPath()
+    let url = URL(fileURLWithPath: NSTemporaryDirectory() + "akmeasure.png")
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
+    try reportMeasure(url, expected: "soll: Länge 27.00 Höhe 8.35 Schulter 4.62 Abstand 3.10 Tiefster 3.69 Stufe 0.54 Winkel ~50-130 Stufen [0, 2, 1, 3, 0, 2]")
+}
+
+func reportMeasure(_ url: URL, expected: String) throws {
+    let t = try PhotoTrace(url: url, maxDimension: KeyScan.scanDimension)
+    guard let v = t.subjectMask() else { print("kein Motiv"); return }
+    let (keyPart, inSubject) = t.splitCoin(from: v)
+    let shape = t.keyShape(in: keyPart, bridgeGaps: false)
+    guard let coinPx = inSubject ?? t.findCoin(besideKey: shape) else { print("keine Münze erkannt"); return }
+    let s = try KeyScan(trace: t, mask: shape)
+    let m = try s.measure(mmPerPixel: 23.25 / coinPx)
+    print(String(format: "Münze %.0f px, %.3f mm/px", coinPx, 23.25 / coinPx))
+    print(String(format: "ist:  Länge %.2f Höhe %.2f Schulter %.2f Abstand %.2f Tiefster %.2f Stufe %.2f Winkel %.0f Plateau %.2f", m.keyLength, m.profileHeight, m.shoulder, m.pinSpacing, m.deepestCut, m.cutStep, m.cutAngle, m.plateau), "Stufen", m.levels)
+    print(expected)
+}
+
+/// Pastes a drawn coin into a real photo, for checking the valley search on real edges.
+func measureRealPhoto(_ path: String, coinPixels: Double, outPrefix: String) throws {
+    let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil)!
+    let img = CGImageSourceCreateImageAtIndex(src, 0, nil)!
+    let ctx = CGContext(data: nil, width: img.width, height: img.height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    ctx.draw(img, in: CGRect(x: 0, y: 0, width: img.width, height: img.height))
+    ctx.setFillColor(CGColor(gray: 0.75, alpha: 1))
+    if coinPixels > 0 { ctx.fillEllipse(in: CGRect(x: Double(img.width) - coinPixels - 12, y: Double(img.height) - coinPixels - 12, width: coinPixels, height: coinPixels)) }
+    let url = URL(fileURLWithPath: outPrefix + "-coin.png")
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
+    try reportMeasure(url, expected: "(echtes Foto, Münze gezeichnet: nur Plausibilität)")
+    let t = try PhotoTrace(url: url, maxDimension: KeyScan.scanDimension)
+    guard let v = t.subjectMask() else { return }
+    let (keyPart, inSubject) = t.splitCoin(from: v)
+    let shape = t.keyShape(in: keyPart, bridgeGaps: false)
+    guard let coinPx = inSubject ?? t.findCoin(besideKey: shape) else { return }
+    let s = try KeyScan(trace: t, mask: shape)
+    let m = try s.measure(mmPerPixel: 23.25 / coinPx)
+    if let cg = s.preview(m) {
+        let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: outPrefix + "-measure.png") as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(d, cg, nil); CGImageDestinationFinalize(d)
     }
 }
