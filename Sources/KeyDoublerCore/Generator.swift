@@ -344,7 +344,11 @@ public extension Catalog {
     private static let profileOfSystem = [
         "AB-E20": "AB-AB95", "AB-C83": "AB-AB1", "BK-PZ88": "BK-BK1", "CE-810": "CE-CE41",
         "BK-Serie-2000-6Stift": "BK-Serie-2000-Kaskade-Unbekannt",
+        "IKON-SK6": "IKON-RZL3", "EVVA-System": "EVVA-Profil",
     ]
+
+    /// Other names a system is sold under, as far as a source states them (see data/SOURCES.md).
+    private static let otherNames = ["AB-C83": ["A90"]]
 
     /// Finds key types by what is stamped on a key or cylinder, such as "A93" or "E20".
     /// Serial and key numbers are not in here: only the manufacturer can resolve those.
@@ -360,7 +364,8 @@ public extension Catalog {
                 let parts = name.split(separator: "-").map { plain(String($0)) }
                 return parts.indices.contains { parts[$0...].joined().hasPrefix(q) }
             }
-            guard matches(system.id) || profile.map({ matches($0.id) }) == true else { return nil }
+            let names = [system.id, profile?.id].compactMap { $0 } + (Catalog.otherNames[system.id] ?? [])
+            guard names.contains(where: matches) else { return nil }
             return KeyTypeMatch(system: system, profile: profile)
         }
     }

@@ -10,7 +10,8 @@ geometry is computed in Swift.
 - Measure a key from one photo with a coin as size reference: length, height, shoulder, pin spacing and cut depths
 - Key detection with Apple's Vision framework (macOS 14+), with a manual threshold as fallback
 - Profile from a photo of the key's end face (contour detection) or SVG import
-- Built-in profiles and lock-system definitions from the original project; add your own
+- Built-in profiles and lock-system definitions from the original project and two forks (see `data/SOURCES.md`); add your own
+- Search key types by what is stamped on the key or cylinder
 - Saved keys, 3D preview (SceneKit), binary STL export
 - "Expert" mode with all options on one screen
 
