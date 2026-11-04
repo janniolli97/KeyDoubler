@@ -7,6 +7,7 @@ swift build -c release
 APP=build/AutoKey3D.app
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/data"
 cp .build/release/AutoKey3D "$APP/Contents/MacOS/AutoKey3D"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 for d in profiles definitions includes branding; do cp -R "$DATA/$d" "$APP/Contents/Resources/data/"; done
 cp "$DATA/base-settings.scad" "$DATA/pre-settings.scad" "$DATA/LICENSE" "$APP/Contents/Resources/data/"
 find "$APP/Contents/Resources/data" -name '*.dxf' -delete
@@ -17,6 +18,7 @@ cat > "$APP/Contents/Info.plist" <<'P'
 <key>CFBundleName</key><string>AutoKey3D</string>
 <key>CFBundleDisplayName</key><string>AutoKey3D</string>
 <key>CFBundleIdentifier</key><string>net.own-hero.autokey3d.macos</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleExecutable</key><string>AutoKey3D</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>1.1</string>
