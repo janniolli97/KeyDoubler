@@ -50,3 +50,36 @@ func phototest(_ catalogRoot: String) throws {
     print("reparsed pts", back.points.count)
 }
 func signedAreaPublic(_ p: [V2]) -> Double { var a = 0.0; for i in 0..<p.count { let j = (i+1)%p.count; a += p[i].x*p[j].y - p[j].x*p[i].y }; return a/2 }
+func scantest() throws {
+    // synthetic flat key, tip pointing left, rotated 12 degrees, 20 px/mm
+    let px = 20.0, kl = 27.0, aspace = 4.62, pinspace = 3.1, hcut = 3.69, cs = 0.54, phk = 8.35
+    let truth = [0, 2, 1, 3, 0, 2]
+    let W = 1400, H = 700
+    let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
+    ctx.setFillColor(gray: 0.9, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    ctx.translateBy(x: 700, y: 350); ctx.rotate(by: 12 * .pi / 180)
+    ctx.setFillColor(gray: 0.2, alpha: 1)
+    // local frame: x to the right = handle side, tip at x = -kl*px/2 ... shoulder at +kl/2
+    let x0 = -kl * px / 2, x1 = kl * px / 2          // tip .. shoulder
+    let top = -phk * px / 2
+    // handle bow
+    ctx.fill(CGRect(x: x1, y: top - 40, width: 170, height: phk * px + 80))
+    var path = CGMutablePath()
+    path.move(to: CGPoint(x: x0, y: top)); path.addLine(to: CGPoint(x: x1, y: top)); path.addLine(to: CGPoint(x: x1, y: -top))
+    // cut edge = bottom (y = -top); walk from shoulder to tip
+    for (i, lv) in truth.enumerated() {
+        let c = x1 - (aspace + Double(i) * pinspace) * px, d = (hcut - Double(lv) * cs) * px, w = 0.5 * px
+        path.addLine(to: CGPoint(x: c + w + 0.8 * px, y: -top)); path.addLine(to: CGPoint(x: c + w, y: -top - d))
+        path.addLine(to: CGPoint(x: c - w, y: -top - d)); path.addLine(to: CGPoint(x: c - w - 0.8 * px, y: -top))
+    }
+    path.addLine(to: CGPoint(x: x0, y: -top)); path.closeSubpath()
+    ctx.addPath(path); ctx.fillPath()
+    let url = URL(fileURLWithPath: "/tmp/claude-501/keyflat.png")
+    let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
+    CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
+    let t = try PhotoTrace(url: url)
+    let s = try KeyScan(trace: t, threshold: t.otsuThreshold(), keyIsDark: true)
+    let r = try s.analyze(kl: kl, aspace: aspace, pinspace: pinspace, pins: 6, hcut: hcut, cutspace: cs)
+    print("truth ", truth); print("levels", r.levels); print("depths", r.depthsMM.map { String(format: "%.2f", $0) }, "res", r.residuals.map { String(format: "%.2f", $0) })
+    print("mm/px", r.mmPerPixel, "(expected ~", 1 / px, "* image scale)")
+}

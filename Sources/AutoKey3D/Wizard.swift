@@ -100,6 +100,7 @@ struct CaliperIllustration: View {
 
 struct KeySideIllustration: View {
     var kl: Double, aspace: Double, pinspace: Double, ph: Double, cutspace: Double
+    var hcut: Double = 0
     var levels: [Int]
     var showDims = true
     var body: some View {
@@ -115,7 +116,8 @@ struct KeySideIllustration: View {
             var pts: [(Double, Double)] = []   // x, notch depth
             for (i, lv) in levels.enumerated() {
                 let cx = left + (aspace + Double(i) * pinspace) * s
-                pts.append((cx, (0.16 * h) + Double(lv) * max(cutspace, 0.2) * s * 1.6))
+                let depthMM = hcut > 0 ? max(0.3, hcut - Double(lv) * cutspace) : 2.0 - Double(lv) * cutspace
+                pts.append((cx, min(h * 0.9, depthMM * s * 1.6)))
             }
             var cur = left
             for (cx, depth) in pts {
@@ -206,6 +208,7 @@ struct WizardView: View {
     @State var pins = 6
     @State var levels: [Int] = Array(repeating: 0, count: 6)
     @State var msg = ""
+    @State var showScan = false
 
     func d(_ s: String) -> Double? { Double(s.replacingOccurrences(of: ",", with: ".")) }
     var profileItem: Catalog.Item? { m.profiles.first { $0.id == m.profileID } }
@@ -227,6 +230,13 @@ struct WizardView: View {
                     .keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
             }.padding(12)
         }
+        .sheet(isPresented: $showScan) { scanSheet }
+    }
+
+    var scanSheet: some View {
+        KeyScanView(params: params, pins: pins) { lv in
+            pins = lv.count; levels = lv; showScan = false
+        } onClose: { showScan = false }
     }
 
     var progress: some View {
@@ -465,8 +475,9 @@ struct WizardView: View {
                 } else {
                     Stepper("Anzahl Stifte: \(pins)", value: $pins, in: 1...10).frame(maxWidth: 240)
                         .onChange(of: pins) { n in levels = Array((levels + Array(repeating: 0, count: 10)).prefix(n)) }
-                    KeySideIllustration(kl: p["kl"] ?? 27, aspace: p["aspace"] ?? 0, pinspace: p["pinspace"] ?? 0, ph: p["ph"] ?? 8.75, cutspace: p["cutspace"] ?? 0.5, levels: levels)
-                    Text("Stufe pro Stift, vom Schulterende zur Spitze (Tiefe wird in der Skizze überhöht dargestellt):").font(.callout)
+                    KeySideIllustration(kl: p["kl"] ?? 27, aspace: p["aspace"] ?? 0, pinspace: p["pinspace"] ?? 0, ph: p["ph"] ?? 8.75, cutspace: p["cutspace"] ?? 0.5, hcut: p["hcut"] ?? 0, levels: levels)
+                    Button { showScan = true } label: { Label("Schlüssel scannen (Foto/Scan von oben) …", systemImage: "doc.viewfinder") }
+                    Text("Stufe pro Stift, von der Schulter zur Spitze (Tiefe wird in der Skizze überhöht dargestellt):").font(.callout)
                     HStack(spacing: 10) {
                         ForEach(0..<pins, id: \.self) { i in
                             VStack(spacing: 2) {
@@ -475,7 +486,7 @@ struct WizardView: View {
                             }
                         }
                     }
-                    Text("Nummerierung wie im Originalwerkzeug: Stufe 0 = Grundschnitt, jede weitere Stufe um die 'Stufe zwischen Schnitttiefen' tiefer. Bitte mit den Maßen deines Schlüssels vergleichen.")
+                    Text("Nummerierung wie im Originalwerkzeug: Stufe 0 ist der tiefste Schnitt, jede weitere Stufe ist um die 'Stufe zwischen Schnitttiefen' flacher. Bitte mit den Maßen deines Schlüssels vergleichen.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -512,5 +523,93 @@ struct WizardView: View {
             }.font(.callout)
             Text("Hinweis: Das ist eine Neuimplementierung; die eingeprägte Beschriftung am Griff und Dimple-Systeme fehlen.").font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+
+struct KeyScanView: View {
+    let params: [String: Double]
+    let pins: Int
+    var onApply: ([Int]) -> Void
+    var onClose: () -> Void
+
+    @State var photo: PhotoTrace?
+    @State var threshold = 128.0
+    @State var keyIsDark = true
+    @State var scan: KeyScan?
+    @State var shoulder = 0.0
+    @State var pinCount = 6
+    @State var result: KeyScan.Result?
+    @State var image: NSImage?
+    @State var msg = ""
+
+    func load(_ u: URL) {
+        do { let t = try PhotoTrace(url: u); photo = t; threshold = Double(t.otsuThreshold()); rescan(resetShoulder: true) }
+        catch { msg = error.localizedDescription }
+    }
+
+    func rescan(resetShoulder: Bool = false) {
+        guard let t = photo else { return }
+        do {
+            let s = try KeyScan(trace: t, threshold: Int(threshold), keyIsDark: keyIsDark)
+            scan = s
+            if resetShoulder { shoulder = s.detectedShoulder }
+            analyze()
+        } catch { scan = nil; result = nil; image = nil; msg = error.localizedDescription }
+    }
+
+    func analyze() {
+        guard let s = scan else { return }
+        do {
+            let r = try s.analyze(kl: params["kl"] ?? 27, aspace: params["aspace"] ?? 0, pinspace: params["pinspace"] ?? 3,
+                                  pins: pinCount, hcut: params["hcut"] ?? 3, cutspace: params["cutspace"] ?? 0.5, shoulderBin: shoulder)
+            result = r; msg = ""
+            if let cg = s.preview(r) { image = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)) }
+        } catch { result = nil; msg = error.localizedDescription }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Schlüssel scannen").font(.title2.bold())
+                Text("Lege den Schlüssel flach auf einfarbiges Papier (oder in einen Flachbettscanner), die gezahnte Kante frei. Fotografiere genau von oben, der ganze Schlüssel muss im Bild sein. Die Länge von Schulter bis Spitze wird mit der Länge des gewählten Systems (\(String(format: "%.1f", params["kl"] ?? 27)) mm) skaliert.")
+                    .font(.callout).foregroundStyle(.secondary)
+                HStack {
+                    Button("Foto/Scan wählen …") {
+                        let p = NSOpenPanel(); p.allowedContentTypes = [.image]
+                        if p.runModal() == .OK, let u = p.url { load(u) }
+                    }
+                    Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in rescan(resetShoulder: true) }
+                    Stepper("Stifte: \(pinCount)", value: $pinCount, in: 1...10).onChange(of: pinCount) { _ in analyze() }.frame(width: 140)
+                }
+                if photo != nil {
+                    HStack { Text("Schwellwert"); Slider(value: $threshold, in: 1...254).onChange(of: threshold) { _ in rescan(resetShoulder: true) } }
+                    if let s = scan {
+                        HStack { Text("Schulter"); Slider(value: $shoulder, in: 0...Double(max(1, s.bins - 40))).onChange(of: shoulder) { _ in analyze() } }
+                    }
+                }
+                if let img = image { Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 300) }
+                if let r = result {
+                    Text("Blau = Schulter, grün = Stiftpositionen. Stimmen die grünen Linien nicht mit den Zähnen überein, Schulter verschieben.").font(.caption).foregroundStyle(.secondary)
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 4) {
+                        GridRow { Text("Stift").bold(); Text("Tiefe (mm)").bold(); Text("Stufe").bold(); Text("Sicherheit").bold() }
+                        ForEach(0..<r.levels.count, id: \.self) { i in
+                            GridRow {
+                                Text("\(i + 1)"); Text(String(format: "%.2f", r.depthsMM[i])); Text("\(r.levels[i])")
+                                Text(r.residuals[i] < 0.25 ? "gut" : (r.residuals[i] < 0.4 ? "mittel" : "unsicher"))
+                                    .foregroundStyle(r.residuals[i] < 0.25 ? .green : (r.residuals[i] < 0.4 ? .orange : .red))
+                            }
+                        }
+                    }
+                    Text(String(format: "Maßstab: %.3f mm pro Pixel. Prüfe die Werte mit dem Messschieber, bevor du druckst.", r.mmPerPixel)).font(.caption).foregroundStyle(.secondary)
+                }
+                Text(msg).font(.caption).foregroundStyle(.red)
+                HStack {
+                    Spacer()
+                    Button("Abbrechen") { onClose() }
+                    Button("Übernehmen") { if let r = result { onApply(r.levels) } }.disabled(result == nil).keyboardShortcut(.defaultAction)
+                }
+            }.padding(20)
+        }.frame(width: 640, height: 640).onAppear { pinCount = pins }
     }
 }
