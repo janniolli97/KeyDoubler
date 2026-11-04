@@ -1,4 +1,4 @@
-import AutoKeyCore
+import KeyDoublerCore
 import simd
 func selftest() {
     let b = boxSolid(V3(2, 3, 4), center: false)

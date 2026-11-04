@@ -1,7 +1,7 @@
 import SwiftUI
 import SceneKit
 import simd
-import AutoKeyCore
+import KeyDoublerCore
 import UniformTypeIdentifiers
 
 // MARK: - Illustration helpers

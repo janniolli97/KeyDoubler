@@ -1,12 +1,12 @@
 import SwiftUI
 import SceneKit
-import AutoKeyCore
+import KeyDoublerCore
 import UniformTypeIdentifiers
 
 @main
-struct AutoKey3DApp: App {
+struct KeyDoublerApp: App {
     var body: some Scene {
-        WindowGroup("AutoKey3D") { RootView().frame(minWidth: 900, minHeight: 700) }
+        WindowGroup("KeyDoubler") { RootView().frame(minWidth: 900, minHeight: 700) }
     }
 }
 

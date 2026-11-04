@@ -2,11 +2,11 @@
 import PackageDescription
 
 let package = Package(
-    name: "AutoKey3D",
+    name: "KeyDoubler",
     platforms: [.macOS(.v13)],
     targets: [
-        .target(name: "AutoKeyCore", path: "Sources/AutoKeyCore"),
-        .executableTarget(name: "AutoKey3D", dependencies: ["AutoKeyCore"], path: "Sources/AutoKey3D"),
-        .executableTarget(name: "akcli", dependencies: ["AutoKeyCore"], path: "Sources/akcli"),
+        .target(name: "KeyDoublerCore", path: "Sources/KeyDoublerCore"),
+        .executableTarget(name: "KeyDoubler", dependencies: ["KeyDoublerCore"], path: "Sources/KeyDoubler"),
+        .executableTarget(name: "akcli", dependencies: ["KeyDoublerCore"], path: "Sources/akcli"),
     ]
 )

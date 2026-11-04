@@ -1,5 +1,5 @@
 import Foundation
-import AutoKeyCore
+import KeyDoublerCore
 
 struct SavedKey: Codable, Identifiable, Hashable {
     var id = UUID()

@@ -1,5 +1,5 @@
 import Foundation
-import AutoKeyCore
+import KeyDoublerCore
 
 // usage: akcli <profile> <definition> <blank|bump|key> [combination] -o out.stl
 let a = CommandLine.arguments

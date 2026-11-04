@@ -1,5 +1,5 @@
 import SwiftUI
-import AutoKeyCore
+import KeyDoublerCore
 
 struct CoinIllustration: View {
     var body: some View {

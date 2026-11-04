@@ -23,7 +23,13 @@ public struct Catalog {
     public let definitions: [Item]
 
     public static var defaultUserRoot: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("AutoKey3D")
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let root = base.appendingPathComponent("KeyDoubler")
+        // Earlier versions were called AutoKey3D: keep their saved profiles, systems and keys.
+        let old = base.appendingPathComponent("AutoKey3D")
+        if !fm.fileExists(atPath: root.path), fm.fileExists(atPath: old.path) { try? fm.moveItem(at: old, to: root) }
+        return root
     }
 
     public init(root: URL, userRoot: URL = Catalog.defaultUserRoot) {
@@ -41,10 +47,10 @@ public struct Catalog {
         definitions = list(root, "definitions", needSVG: false, custom: false) + list(userRoot, "definitions", needSVG: false, custom: true)
     }
 
-    /// Locate the data directory: AUTOKEY_DATA env, app bundle Resources/data, or the repo checkout.
+    /// Locate the data directory: KEYDOUBLER_DATA env, app bundle Resources/data, or the repo checkout.
     public static func locate() -> Catalog? {
         var candidates: [URL] = []
-        if let env = ProcessInfo.processInfo.environment["AUTOKEY_DATA"] { candidates.append(URL(fileURLWithPath: env)) }
+        if let env = ProcessInfo.processInfo.environment["KEYDOUBLER_DATA"] { candidates.append(URL(fileURLWithPath: env)) }
         if let r = Bundle.main.resourceURL { candidates.append(r.appendingPathComponent("data")) }
         candidates.append(URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("../data"))
         for c in candidates where FileManager.default.fileExists(atPath: c.appendingPathComponent("profiles").path) {
