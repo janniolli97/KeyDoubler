@@ -209,6 +209,7 @@ struct WizardView: View {
     @State var sAngle = "90"
     @State var sPlat = "0.2"
     @State var sHeight = ""
+    @State var sThickness = ""
     // combination
     @State var pins = 6
     @State var levels: [Int] = Array(repeating: 0, count: 6)
@@ -299,7 +300,7 @@ struct WizardView: View {
         guard let kl = d(sKL) else { msg = "Schlüssellänge fehlt."; return false }
         var s = Catalog.CustomSystem(name: sName.isEmpty ? "Mein-System" : sName, keyLength: kl)
         s.shoulder = d(sAsp) ?? 0; s.pinSpacing = d(sPin) ?? 0; s.deepestCut = d(sHcut) ?? 0
-        s.cutStep = d(sStep) ?? 0; s.cutAngle = d(sAngle) ?? 90; s.plateau = d(sPlat) ?? 0; s.bladeHeight = d(sHeight)
+        s.cutStep = d(sStep) ?? 0; s.cutAngle = d(sAngle) ?? 90; s.plateau = d(sPlat) ?? 0; s.bladeHeight = d(sHeight); s.bladeThickness = d(sThickness)
         do { try m.catalog?.addSystem(s); m.reloadCatalog(); m.definitionID = try Catalog.safeName(s.name); customSystem = false; return true }
         catch { msg = error.localizedDescription; return false }
     }
@@ -472,6 +473,7 @@ struct WizardView: View {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow { Text("Länge (Schulter bis Spitze)"); TextField("27", text: $sKL) }
                     GridRow { Text("Schlüsselhöhe (quer übers Blatt)"); TextField("leer = wie Profil", text: $sHeight) }
+                    GridRow { Text("Blattdicke (nur mit Messschieber)"); TextField("leer = wie Profil", text: $sThickness) }
                     GridRow { Text("Schulter → erster Stift"); TextField("4.6", text: $sAsp) }
                     GridRow { Text("Abstand zwischen Stiften"); TextField("3.1", text: $sPin) }
                     GridRow { Text("Tiefster/erster Schnitt (hcut)"); TextField("2", text: $sHcut) }
@@ -480,7 +482,7 @@ struct WizardView: View {
                     GridRow { Text("Plateau zwischen Flanken"); TextField("0.2", text: $sPlat) }
                     GridRow { Text("Name"); TextField("Mein-System", text: $sName) }
                 }.frame(maxWidth: 440)
-                Text("Alle Maße in Millimetern, mit dem Messschieber vom Schlüssel abnehmen.").font(.caption).foregroundStyle(.secondary)
+                Text("Alle Maße in Millimetern, mit dem Messschieber vom Schlüssel abnehmen. Die Blattdicke misst du an der dicksten Stelle des Blatts; auf einem Foto von oben ist sie nicht zu sehen.").font(.caption).foregroundStyle(.secondary)
             } else {
                 Picker("System", selection: $m.definitionID) { ForEach(m.definitions) { Text($0.id).tag($0.id) } }.frame(maxWidth: 320)
                 KeySideIllustration(kl: p["kl"] ?? 27, aspace: p["aspace"] ?? 0, pinspace: p["pinspace"] ?? 0, ph: p["ph"] ?? 8.75, cutspace: p["cutspace"] ?? 0.5, hcut: p["hcut"] ?? 0, levels: Array(repeating: 0, count: 6))

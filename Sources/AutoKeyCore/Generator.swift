@@ -69,6 +69,8 @@ public struct Catalog {
         public var shoulder = 0.0, pinSpacing = 0.0, deepestCut = 0.0, cutStep = 0.0, cutAngle = 90.0, plateau = 0.0
         /// Height of the finished blade. Replaces the height of the chosen profile, whose shape is scaled to fit.
         public var bladeHeight: Double?
+        /// Thickness of the finished blade. Stretches the profile in that direction only.
+        public var bladeThickness: Double?
         public init(name: String, keyLength: Double) { self.name = name; self.keyLength = keyLength }
     }
 
@@ -107,6 +109,7 @@ public struct Catalog {
         platspace = \(s.plateau);
 
         """ + (s.bladeHeight.map { "ph = \($0) + 2*tol;\n" } ?? "")
+            + (s.bladeThickness.map { "blade_thickness = \($0);\n" } ?? "")
         try scad.write(to: dir.appendingPathComponent("\(name).scad"), atomically: true, encoding: .utf8)
     }
 
@@ -173,7 +176,13 @@ public struct KeyGenerator {
         // Body
         let svgURL = profile.url.deletingPathExtension().appendingPathExtension("svg")
         let outline = try SVGProfile.load(url: svgURL).cleaned(minDist: 0.01).normalized(height: ph).simplified(tolerance: 0.01).cleaned(minDist: 0.05)
-        let thinned = tol > 0 ? outline.eroded(by: tol) : outline
+        var shaped = outline
+        if let thickness = env.number("blade_thickness"), thickness > 0 {
+            let b = outline.bounds
+            let stretch = (thickness + 2 * tol) / (b.max.x - b.min.x)   // thinning removes tol on both sides
+            shaped.points = outline.points.map { V2(b.min.x + ($0.x - b.min.x) * stretch, $0.y) }
+        }
+        let thinned = tol > 0 ? shaped.eroded(by: tol) : shaped
         let dbg = ProcessInfo.processInfo.environment["AK_DEBUG"] != nil
         if dbg { print("outline pts \(thinned.points.count) area \(signedArea(thinned.points)) bounds \(thinned.bounds)") }
         if dbg { let t0 = triangulate(outline.points); print("raw outline pts \(outline.points.count) area \(signedArea(outline.points)) tris \(t0.count)") }
