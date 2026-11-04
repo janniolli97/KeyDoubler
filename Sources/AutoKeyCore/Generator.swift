@@ -67,6 +67,8 @@ public struct Catalog {
         public var name: String
         public var keyLength: Double
         public var shoulder = 0.0, pinSpacing = 0.0, deepestCut = 0.0, cutStep = 0.0, cutAngle = 90.0, plateau = 0.0
+        /// Height of the finished blade. Replaces the height of the chosen profile, whose shape is scaled to fit.
+        public var bladeHeight: Double?
         public init(name: String, keyLength: Double) { self.name = name; self.keyLength = keyLength }
     }
 
@@ -104,7 +106,7 @@ public struct Catalog {
         cutangle = \(s.cutAngle);
         platspace = \(s.plateau);
 
-        """
+        """ + (s.bladeHeight.map { "ph = \($0) + 2*tol;\n" } ?? "")
         try scad.write(to: dir.appendingPathComponent("\(name).scad"), atomically: true, encoding: .utf8)
     }
 

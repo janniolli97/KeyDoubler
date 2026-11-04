@@ -208,6 +208,7 @@ struct WizardView: View {
     @State var sStep = "0.5"
     @State var sAngle = "90"
     @State var sPlat = "0.2"
+    @State var sHeight = ""
     // combination
     @State var pins = 6
     @State var levels: [Int] = Array(repeating: 0, count: 6)
@@ -298,7 +299,7 @@ struct WizardView: View {
         guard let kl = d(sKL) else { msg = "Schlüssellänge fehlt."; return false }
         var s = Catalog.CustomSystem(name: sName.isEmpty ? "Mein-System" : sName, keyLength: kl)
         s.shoulder = d(sAsp) ?? 0; s.pinSpacing = d(sPin) ?? 0; s.deepestCut = d(sHcut) ?? 0
-        s.cutStep = d(sStep) ?? 0; s.cutAngle = d(sAngle) ?? 90; s.plateau = d(sPlat) ?? 0
+        s.cutStep = d(sStep) ?? 0; s.cutAngle = d(sAngle) ?? 90; s.plateau = d(sPlat) ?? 0; s.bladeHeight = d(sHeight)
         do { try m.catalog?.addSystem(s); m.reloadCatalog(); m.definitionID = try Catalog.safeName(s.name); customSystem = false; return true }
         catch { msg = error.localizedDescription; return false }
     }
@@ -306,12 +307,12 @@ struct WizardView: View {
     func applyMeasurement(_ r: KeyMeasurement) {
         customSystem = true
         func text(_ v: Double) -> String { String(format: "%.2f", v) }
-        sKL = text(r.keyLength); sAsp = text(r.shoulder); sPin = text(r.pinSpacing); sHcut = text(r.deepestCut)
+        sKL = text(r.keyLength); sHeight = text(r.profileHeight); sAsp = text(r.shoulder); sPin = text(r.pinSpacing); sHcut = text(r.deepestCut)
         sStep = text(r.cutStep); sAngle = String(format: "%.0f", r.cutAngle); sPlat = text(r.plateau)
         if sName.isEmpty { sName = "Mein-Schluessel" }
         pins = r.levels.count; levels = r.levels
         m.options.mode = .key
-        msg = String(format: "Maße übernommen. Gemessene Schlüsselhöhe: %.2f mm.", r.profileHeight)
+        msg = "Maße übernommen."
     }
 
     func applyCombination() {
@@ -470,6 +471,7 @@ struct WizardView: View {
                 KeySideIllustration(kl: d(sKL) ?? 27, aspace: d(sAsp) ?? 0, pinspace: d(sPin) ?? 0, ph: params["ph"] ?? 8.75, cutspace: d(sStep) ?? 0.5, hcut: d(sHcut) ?? 0, levels: levels)
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                     GridRow { Text("Länge (Schulter bis Spitze)"); TextField("27", text: $sKL) }
+                    GridRow { Text("Schlüsselhöhe (quer übers Blatt)"); TextField("leer = wie Profil", text: $sHeight) }
                     GridRow { Text("Schulter → erster Stift"); TextField("4.6", text: $sAsp) }
                     GridRow { Text("Abstand zwischen Stiften"); TextField("3.1", text: $sPin) }
                     GridRow { Text("Tiefster/erster Schnitt (hcut)"); TextField("2", text: $sHcut) }
