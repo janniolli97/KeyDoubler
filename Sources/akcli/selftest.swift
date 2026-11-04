@@ -145,6 +145,59 @@ func scanCases() throws {
             let r = try s.analyze(kl: kl, aspace: aspace, pinspace: pinspace, pins: 6, hcut: hcut, cutspace: cs)
             let soll = 0.05 * Double(max(k.W, k.H)) / Double(max(t.width, t.height))
             print(r.levels == truth ? "OK    " : "FALSCH", k.name, r.levels, String(format: "%.3f mm/px (soll ca. %.3f), %.2fs", r.mmPerPixel, soll, Date().timeIntervalSince(t0)))
+            let t1 = Date()
+            if let v = t.subjectMask() {
+                let av = try KeyScan(trace: t, mask: t.keyShape(in: v)).analyze(kl: kl, aspace: aspace, pinspace: pinspace, pins: 6, hcut: hcut, cutspace: cs)
+                print(av.levels == truth ? "  auto OK    " : "  auto FALSCH", av.levels, String(format: "%.2fs", Date().timeIntervalSince(t1)))
+            } else { print("  auto: kein Motiv gefunden") }
         } catch { print("FEHLER", k.name, error.localizedDescription) }
+    }
+}
+
+/// Runs detection on a real photo and writes preview images next to `outPrefix`.
+func photoCheck(_ path: String, outPrefix: String) throws {
+    func save(_ img: CGImage?, _ name: String) {
+        guard let img else { return }
+        let dest = CGImageDestinationCreateWithURL(URL(fileURLWithPath: outPrefix + name) as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, img, nil); CGImageDestinationFinalize(dest)
+    }
+    let t = try PhotoTrace(url: URL(fileURLWithPath: path), maxDimension: KeyScan.scanDimension)
+    if let v = t.subjectMask() {
+        let shape = t.keyShape(in: v)
+        print("vision maskFraction", Double(shape.filter { $0 }.count) / Double(shape.count))
+        save(t.preview(mask: shape, outline: try? t.outline(mask: shape)), "-vision.png")
+        let s = try KeyScan(trace: t, mask: shape)
+        print("auto looksLikeFlatKey", s.looksLikeFlatKey, "bins", s.bins, "shoulder", s.detectedShoulder)
+        let r = try s.analyze(kl: 27, aspace: 4.62, pinspace: 3.1, pins: 6, hcut: 3.69, cutspace: 0.54)
+        print("auto levels", r.levels, "depths", r.depthsMM.map { String(format: "%.2f", $0) }, String(format: "%.3f mm/px", r.mmPerPixel))
+        save(s.preview(r), "-autoscan.png")
+    } else { print("vision: kein Motiv") }
+    let thr = t.otsuThreshold(), dark = t.suggestedKeyIsDark(threshold: thr)
+    let m = t.mask(threshold: thr, keyIsDark: dark)
+    print("size \(t.width)x\(t.height) otsu \(thr) keyIsDark \(dark) maskFraction", Double(m.filter { $0 }.count) / Double(m.count))
+    save(t.preview(mask: m, outline: try? t.outline(threshold: thr, keyIsDark: dark)), "-mask.png")
+    let s = try KeyScan(trace: t, threshold: thr, keyIsDark: dark)
+    print("looksLikeFlatKey", s.looksLikeFlatKey, "bins", s.bins, "shoulder", s.detectedShoulder)
+    let r = try s.analyze(kl: 27, aspace: 4.62, pinspace: 3.1, pins: 6, hcut: 3.69, cutspace: 0.54)
+    print("levels", r.levels, "depths", r.depthsMM.map { String(format: "%.2f", $0) })
+    save(s.preview(r), "-scan.png")
+}
+
+/// The bundled key profiles are cross-sections and must not be taken for flat keys.
+func flatCheck(_ root: String) throws {
+    let dir = root + "/profiles"
+    for f in try FileManager.default.contentsOfDirectory(atPath: dir).sorted() where f.hasSuffix(".svg") {
+        let o = try SVGProfile.load(url: URL(fileURLWithPath: dir + "/" + f)).normalized(height: 600)
+        let ctx = CGContext(data: nil, width: 900, height: 800, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: 0)!
+        ctx.setFillColor(gray: 0.9, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: 900, height: 800))
+        ctx.setFillColor(gray: 0.15, alpha: 1)
+        let pts = o.points.map { CGPoint(x: $0.x + 300, y: $0.y + 100) }
+        ctx.move(to: pts[0]); pts.dropFirst().forEach { ctx.addLine(to: $0) }; ctx.fillPath()
+        let url = URL(fileURLWithPath: NSTemporaryDirectory() + "akflat.png")
+        let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, ctx.makeImage()!, nil); CGImageDestinationFinalize(dest)
+        let t = try PhotoTrace(url: url)
+        let s = try KeyScan(trace: t, threshold: t.otsuThreshold(), keyIsDark: true)
+        print(s.looksLikeFlatKey ? "FLACH " : "ok    ", f)
     }
 }

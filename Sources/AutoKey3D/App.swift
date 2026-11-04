@@ -237,7 +237,7 @@ struct CustomDataView: View {
                     let p = NSOpenPanel(); p.allowedContentTypes = [.image]
                     if p.runModal() == .OK, let u = p.url {
                         do { let t = try PhotoTrace(url: u); photo = t; photoName = u.deletingPathExtension().lastPathComponent
-                             threshold = Double(t.otsuThreshold()); if pName.isEmpty { pName = photoName }; msg = ""; retrace() }
+                             threshold = Double(t.otsuThreshold()); keyIsDark = t.suggestedKeyIsDark(threshold: Int(threshold)); if pName.isEmpty { pName = photoName }; msg = ""; retrace() }
                         catch { msg = error.localizedDescription }
                     }
                 }

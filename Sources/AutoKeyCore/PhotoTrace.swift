@@ -2,6 +2,8 @@ import Foundation
 import CoreGraphics
 import ImageIO
 import simd
+import Vision
+import CoreVideo
 
 /// Turns a photo of a key (seen end-on, i.e. the cross-section, against a contrasting background)
 /// into a closed profile outline.
@@ -9,6 +11,7 @@ public struct PhotoTrace {
     public let width: Int
     public let height: Int
     public private(set) var gray: [UInt8]
+    let source: CGImage
     public static let maxDimension = 900
 
     public enum TraceError: LocalizedError {
@@ -37,7 +40,7 @@ public struct PhotoTrace {
             return true
         }
         guard ok else { throw TraceError.unreadable }
-        width = w; height = h; gray = buf
+        width = w; height = h; gray = buf; source = img
     }
 
     public func otsuThreshold() -> Int {
@@ -55,6 +58,58 @@ public struct PhotoTrace {
             if between > best { best = between; thr = t }
         }
         return thr
+    }
+
+    /// The main subject of the photo as found by Vision, which copes with uneven light. nil if none was found.
+    /// Vision's mask is coarse relative to its input, so a small subject is detected again on a crop around it.
+    public func subjectMask() -> [Bool]? {
+        guard #available(macOS 14.0, *), let first = visionMask(of: source) else { return nil }
+        var minX = width, minY = height, maxX = -1, maxY = -1
+        for y in 0..<height { for x in 0..<width where first[y * width + x] {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= 0 else { return nil }
+        let margin = max(maxX - minX, maxY - minY) / 6
+        let crop = CGRect(x: max(0, minX - margin), y: max(0, minY - margin),
+                          width: min(width, maxX + margin + 1) - max(0, minX - margin),
+                          height: min(height, maxY + margin + 1) - max(0, minY - margin))
+        guard crop.width * crop.height < CGFloat(width * height) * 0.7, let image = source.cropping(to: crop),
+              let detail = visionMask(of: image) else { return first }
+        var out = [Bool](repeating: false, count: width * height)
+        let cw = Int(crop.width)
+        for y in 0..<Int(crop.height) { for x in 0..<cw where detail[y * cw + x] {
+            out[(y + Int(crop.minY)) * width + x + Int(crop.minX)] = true
+        } }
+        return out.contains(true) ? out : first
+    }
+
+    @available(macOS 14.0, *)
+    private func visionMask(of image: CGImage) -> [Bool]? {
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        guard (try? handler.perform([request])) != nil, let result = request.results?.first,
+              let buffer = try? result.generateScaledMaskForImage(forInstances: result.allInstances, from: handler) else { return nil }
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let w = image.width, h = image.height
+        guard let base = CVPixelBufferGetBaseAddress(buffer),
+              CVPixelBufferGetWidth(buffer) == w, CVPixelBufferGetHeight(buffer) == h else { return nil }
+        let rowBytes = CVPixelBufferGetBytesPerRow(buffer)
+        var out = [Bool](repeating: false, count: w * h)
+        for y in 0..<h {
+            let row = base.advanced(by: y * rowBytes).assumingMemoryBound(to: Float32.self)
+            for x in 0..<w { out[y * w + x] = row[x] > 0.5 }
+        }
+        return out.contains(true) ? out : nil
+    }
+
+    /// True when the picture's border is bright, i.e. the background is light and the key is the dark part.
+    public func suggestedKeyIsDark(threshold: Int) -> Bool {
+        var bright = 0, total = 0
+        func count(_ i: Int) { total += 1; if Int(gray[i]) > threshold { bright += 1 } }
+        for x in 0..<width { count(x); count((height - 1) * width + x) }
+        for y in 0..<height { count(y * width); count(y * width + width - 1) }
+        return bright * 2 >= total
     }
 
     /// Binary mask of the key: the largest shape not touching the image border, holes filled.
@@ -109,23 +164,32 @@ public struct PhotoTrace {
             return a
         }
 
-        let (labels, list) = components(raw)
+        // Close small gaps first, so that a speckled background patch counts as one shape that reaches the border.
+        let denoise = max(1, max(w, h) * 3 / 1000)
+        let (labels, list) = components(spread(spread(raw, denoise, value: true), denoise, value: false))
         var m: [Bool]
         if let main = largest(list, where: { !$0.touchesBorder }) {
-            // Group candidates that lie apart only by a small gap, sized relative to the key in the image.
+            // Group the pieces of the key that lie apart only by a small gap, sized relative to the key in the image.
+            func isPiece(_ c: Component) -> Bool { !c.touchesBorder && c.area * 100 >= list[main].area }
             let big = list.filter { !$0.touchesBorder && $0.area * 20 >= list[main].area }
             let span = max(big.map(\.maxX).max()! - big.map(\.minX).min()!, big.map(\.maxY).max()! - big.map(\.minY).min()!)
             let r = max(1, span * 12 / 1000)
-            let candidates = (0..<(w * h)).map { raw[$0] && !list[Int(labels[$0])].touchesBorder }
+            let candidates = (0..<(w * h)).map { raw[$0] && isPiece(list[Int(labels[$0])]) }
             let closed = spread(spread(candidates, r, value: true), r, value: false)
             let (groupLabels, groups) = components(closed)
             guard let group = largest(groups, where: { _ in true }) else { return [Bool](repeating: false, count: w * h) }
             m = (0..<(w * h)).map { groupLabels[$0] == Int32(group) && (bridgeGaps || raw[$0]) }
         } else {
             guard let main = largest(list, where: { _ in true }) else { return raw }
-            m = (0..<(w * h)).map { labels[$0] == Int32(main) }
+            m = (0..<(w * h)).map { labels[$0] == Int32(main) && raw[$0] }
         }
-        // fill holes: flood background from the border
+        return filled(m)
+    }
+
+    /// Fills enclosed holes by flooding the background from the image border.
+    func filled(_ input: [Bool]) -> [Bool] {
+        var m = input
+        let w = width, h = height
         var outside = [Bool](repeating: false, count: w * h)
         var stack: [Int] = []
         func seed(_ i: Int) { if !m[i] && !outside[i] { outside[i] = true; stack.append(i) } }
@@ -138,6 +202,29 @@ public struct PhotoTrace {
         }
         for i in 0..<(w * h) where !outside[i] { m[i] = true }
         return m
+    }
+
+    /// The largest connected shape of a mask, holes filled.
+    public func keyShape(in input: [Bool]) -> [Bool] {
+        let w = width, h = height
+        var label = [Int32](repeating: 0, count: w * h)
+        var next: Int32 = 0, best: Int32 = 0, bestArea = 0
+        var stack: [Int] = []
+        for s in 0..<(w * h) where input[s] && label[s] == 0 {
+            next += 1
+            var area = 0
+            stack = [s]; label[s] = next
+            while let i = stack.popLast() {
+                area += 1
+                let x = i % w, y = i / w
+                if x > 0, input[i - 1], label[i - 1] == 0 { label[i - 1] = next; stack.append(i - 1) }
+                if x < w - 1, input[i + 1], label[i + 1] == 0 { label[i + 1] = next; stack.append(i + 1) }
+                if y > 0, input[i - w], label[i - w] == 0 { label[i - w] = next; stack.append(i - w) }
+                if y < h - 1, input[i + w], label[i + w] == 0 { label[i + w] = next; stack.append(i + w) }
+            }
+            if area > bestArea { bestArea = area; best = next }
+        }
+        return filled(label.map { $0 == best && best != 0 })
     }
 
     /// Outer contour (pixel corner coordinates, y down) via boundary following on the pixel grid.
@@ -173,7 +260,10 @@ public struct PhotoTrace {
 
     /// Smoothed, simplified outline in "y-up" form as expected by Outline (pixels).
     public func outline(threshold: Int, keyIsDark: Bool) throws -> Outline {
-        let m = mask(threshold: threshold, keyIsDark: keyIsDark)
+        try outline(mask: mask(threshold: threshold, keyIsDark: keyIsDark))
+    }
+
+    public func outline(mask m: [Bool]) throws -> Outline {
         var p = try contour(mask: m)
         // light smoothing to remove pixel staircase
         for _ in 0..<2 {

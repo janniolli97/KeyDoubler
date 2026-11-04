@@ -35,8 +35,12 @@ public struct KeyScan {
     public let detectedShoulder: Double   // in bins
 
     public init(trace: PhotoTrace, threshold: Int, keyIsDark: Bool) throws {
+        try self.init(trace: trace, mask: trace.mask(threshold: threshold, keyIsDark: keyIsDark, bridgeGaps: false))
+    }
+
+    public init(trace: PhotoTrace, mask: [Bool]) throws {
         self.trace = trace
-        mask = trace.mask(threshold: threshold, keyIsDark: keyIsDark, bridgeGaps: false)
+        self.mask = mask
         var pts: [V2] = []
         for i in 0..<mask.count where mask[i] { pts.append(V2(Double(i % trace.width), Double(i / trace.width))) }
         guard pts.count > 500 else { throw ScanError.noKey }
@@ -106,6 +110,15 @@ public struct KeyScan {
         axis = V2(cos(ang), sin(ang)); perp = V2(-sin(ang), cos(ang)); mean = m
         vmin = fin.lo; vmax = fin.hi; u0 = fin.umin; bins = fin.n; flipped = fin.flipped
         detectedShoulder = Double(shoulder(fin))
+    }
+
+    /// A key lying flat has a solid bow much wider than its blade; the cross-section of a key does not.
+    public var looksLikeFlatKey: Bool {
+        let widths = (0..<bins).map { vmax[$0] - vmin[$0] }
+        let end = bins / 5
+        let bow = widths[0..<max(1, end)].reduce(0, +) / Double(max(1, end))
+        let blade = widths[(bins / 2)...].sorted()
+        return bow >= blade[blade.count / 2] * 1.8
     }
 
     /// Converts (bin along the oriented axis, v) back to image pixel coordinates.

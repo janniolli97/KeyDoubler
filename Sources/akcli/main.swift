@@ -3,6 +3,8 @@ import AutoKeyCore
 
 // usage: akcli <profile> <definition> <blank|bump|key> [combination] -o out.stl
 let a = CommandLine.arguments
+if a.count > 3, a[1] == "photocheck" { do { try photoCheck(a[2], outPrefix: a[3]) } catch { print(error) }; exit(0) }
+if a.count > 2, a[1] == "flatcheck" { do { try flatCheck(a[2]) } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "scancases" { do { try scanCases() } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "scan" { do { try scantest() } catch { print(error) }; exit(0) }
 if a.count > 1, a[1] == "photo" { do { try phototest(a[2]) } catch { print(error) }; exit(0) }

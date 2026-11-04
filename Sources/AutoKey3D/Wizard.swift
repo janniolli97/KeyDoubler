@@ -189,6 +189,9 @@ struct WizardView: View {
     @State var previewImage: NSImage?
     @State var traced: Outline?
     @State var useExisting = false
+    @State var flatPhoto = false
+    @State var autoDetect = true
+    @State var subject: [Bool]?
     // profile
     @State var pName = ""
     @State var pHeight = ""
@@ -305,14 +308,17 @@ struct WizardView: View {
 
     func retrace() {
         guard let t = photo else { return }
-        let mask = t.mask(threshold: Int(threshold), keyIsDark: keyIsDark)
-        traced = try? t.outline(threshold: Int(threshold), keyIsDark: keyIsDark)
+        let auto = autoDetect ? subject.map { t.keyShape(in: $0) } : nil
+        let mask = auto ?? t.mask(threshold: Int(threshold), keyIsDark: keyIsDark)
+        traced = try? t.outline(mask: mask)
         if let cg = t.preview(mask: mask, outline: traced) { previewImage = NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height)) }
         msg = traced == nil ? (PhotoTrace.TraceError.noShape.errorDescription ?? "") : ""
+        flatPhoto = (try? KeyScan(trace: t, mask: mask))?.looksLikeFlatKey ?? false
     }
 
     func loadPhoto(_ u: URL) {
-        do { let t = try PhotoTrace(url: u); photo = t; threshold = Double(t.otsuThreshold())
+        do { let t = try PhotoTrace(url: u); photo = t; threshold = Double(t.otsuThreshold()); keyIsDark = t.suggestedKeyIsDark(threshold: Int(threshold))
+             subject = t.subjectMask()
              if pName.isEmpty { pName = u.deletingPathExtension().lastPathComponent.replacingOccurrences(of: " ", with: "-") }
              profileSaved = false; retrace() }
         catch { msg = error.localizedDescription }
@@ -382,11 +388,16 @@ struct WizardView: View {
                         if p.runModal() == .OK, let u = p.url { loadPhoto(u) }
                     }
                     ContinuityImportButton { loadPhoto($0) }.fixedSize()
-                    Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in retrace() }
+                    if subject != nil { Toggle("Automatisch erkennen", isOn: $autoDetect).onChange(of: autoDetect) { _ in retrace() } }
                 }
                 dropZone
-                if photo != nil {
+                if photo != nil, !(autoDetect && subject != nil) {
+                    Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in retrace() }
                     HStack { Text("Schwellwert"); Slider(value: $threshold, in: 1...254).onChange(of: threshold) { _ in retrace() } }.frame(maxWidth: 420)
+                }
+                if flatPhoto {
+                    Label("Das sieht nach einem flach liegenden Schlüssel aus. Hier brauchst du ein Foto der Stirnseite (von vorn auf die Spitze), sonst wird das Profil falsch. Das flache Foto gehört in Schritt 5 zu „Schlüssel scannen“. Ohne Stirnseiten-Foto: oben „Vorhandenes Profil wählen“.", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
                 }
                 if let img = previewImage {
                     Image(nsImage: img).resizable().scaledToFit().frame(maxHeight: 280)
@@ -537,6 +548,8 @@ struct KeyScanView: View {
     @State var photo: PhotoTrace?
     @State var threshold = 128.0
     @State var keyIsDark = true
+    @State var autoDetect = true
+    @State var subject: [Bool]?
     @State var scan: KeyScan?
     @State var shoulder = 0.0
     @State var pinCount = 6
@@ -545,14 +558,15 @@ struct KeyScanView: View {
     @State var msg = ""
 
     func load(_ u: URL) {
-        do { let t = try PhotoTrace(url: u, maxDimension: KeyScan.scanDimension); photo = t; threshold = Double(t.otsuThreshold()); rescan(resetShoulder: true) }
+        do { let t = try PhotoTrace(url: u, maxDimension: KeyScan.scanDimension); photo = t; threshold = Double(t.otsuThreshold()); keyIsDark = t.suggestedKeyIsDark(threshold: Int(threshold)); subject = t.subjectMask(); rescan(resetShoulder: true) }
         catch { msg = error.localizedDescription }
     }
 
     func rescan(resetShoulder: Bool = false) {
         guard let t = photo else { return }
         do {
-            let s = try KeyScan(trace: t, threshold: Int(threshold), keyIsDark: keyIsDark)
+            let auto = autoDetect ? subject.map { t.keyShape(in: $0) } : nil
+            let s = try auto.map { try KeyScan(trace: t, mask: $0) } ?? KeyScan(trace: t, threshold: Int(threshold), keyIsDark: keyIsDark)
             scan = s
             if resetShoulder { shoulder = s.detectedShoulder }
             analyze()
@@ -581,11 +595,14 @@ struct KeyScanView: View {
                         if p.runModal() == .OK, let u = p.url { load(u) }
                     }
                     ContinuityImportButton { load($0) }.fixedSize()
-                    Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in rescan(resetShoulder: true) }
+                    if subject != nil { Toggle("Automatisch erkennen", isOn: $autoDetect).onChange(of: autoDetect) { _ in rescan(resetShoulder: true) } }
                     Stepper("Stifte: \(pinCount)", value: $pinCount, in: 1...10).onChange(of: pinCount) { _ in analyze() }.frame(width: 140)
                 }
                 if photo != nil {
-                    HStack { Text("Schwellwert"); Slider(value: $threshold, in: 1...254).onChange(of: threshold) { _ in rescan(resetShoulder: true) } }
+                    if !(autoDetect && subject != nil) {
+                        Toggle("Schlüssel ist dunkel", isOn: $keyIsDark).onChange(of: keyIsDark) { _ in rescan(resetShoulder: true) }
+                        HStack { Text("Schwellwert"); Slider(value: $threshold, in: 1...254).onChange(of: threshold) { _ in rescan(resetShoulder: true) } }
+                    }
                     if let s = scan {
                         HStack { Text("Schulter"); Slider(value: $shoulder, in: 0...Double(max(1, s.bins - 40))).onChange(of: shoulder) { _ in analyze() } }
                     }
